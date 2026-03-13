@@ -7,48 +7,57 @@ const redis = require("../config/cache");
 
 async function registerUser(req,res) {
 
-    const {username,email,password} = req.body;
-
-    const query = email ? {email} : {username};
-
-    const isUserAlreadyExits = await userModel.findOne(query);
-
-            if(isUserAlreadyExits) {
-                return res.status(400).json({
-                    message: "User already exits with this Username or email",
-                    success: false
-                })
-            }
-      
-
-        // const hashPassword = await bcrypt.hash(password, 10);
-
-        const user = await userModel.create({
-            username,
-            email,
-            password
-        })
-        
-        const token = jwt.sign({
-            id: user._id,
-            username: user.username
-        },process.env.JWT_SECRET,{expiresIn: "3d"});
-
-        res.cookie("token",token,{
-            httpOnly: true,
-            secure: false,   //  its only allow to send cookie over https in true
-            sameSite: "lax"
-        });
-
-        res.status(201).json({
-            message: "User registered successfully",
-            success: true,
-            user: {
+try {
+        const {username,email,password} = req.body;
+    
+        const query = email ? {email} : {username};
+    
+        const isUserAlreadyExits = await userModel.findOne(query);
+    
+                if(isUserAlreadyExits) {
+                    return res.status(400).json({
+                        message: "User already exits with this Username or email",
+                        success: false
+                    })
+                }
+          
+    
+            // const hashPassword = await bcrypt.hash(password, 10);
+    
+            const user = await userModel.create({
+                username,
+                email,
+                password
+            })
+            
+            const token = jwt.sign({
                 id: user._id,
-                username: user.username,
-                email: user.email
-            }
-        })
+                username: user.username
+            },process.env.JWT_SECRET,{expiresIn: "3d"});
+    
+            res.cookie("token",token,{
+                httpOnly: true,
+                secure: false,   //  its only allow to send cookie over https in true
+                sameSite: "lax"
+            });
+    
+            res.status(201).json({
+                message: "User registered successfully",
+                success: true,
+                user: {
+                    id: user._id,
+                    username: user.username,
+                    email: user.email
+                }
+            });
+} catch (err) {
+    console.log("Register Errore",err)
+
+    res.status(500).json({
+        message: "Internal server error",
+        Error: err.message
+    })
+}
 
 };
 

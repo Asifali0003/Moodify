@@ -10,11 +10,11 @@ async function registerUser(req,res) {
 try {
         const {username,email,password} = req.body;
     
-        const query = email ? {email} : {username};
+            const isUserAlreadyExists = await userModel.findOne({
+                    $or: [{ email }, { username }]
+            });
     
-        const isUserAlreadyExits = await userModel.findOne(query);
-    
-                if(isUserAlreadyExits) {
+                if(isUserAlreadyExists) {
                     return res.status(400).json({
                         message: "User already exits with this Username or email",
                         success: false
@@ -22,17 +22,17 @@ try {
                 }
           
     
-            // const hashPassword = await bcrypt.hash(password, 10);
     
             const user = await userModel.create({
                 username,
                 email,
-                password
+                password,
             })
             
             const token = jwt.sign({
                 id: user._id,
-                username: user.username
+                username: user.username,
+                role: user.role
             },process.env.JWT_SECRET,{expiresIn: "3d"});
     
             res.cookie("token",token,{
@@ -47,7 +47,8 @@ try {
                 user: {
                     id: user._id,
                     username: user.username,
-                    email: user.email
+                    email: user.email,
+                    role: user.role
                 }
             });
 } catch (err) {
@@ -62,87 +63,115 @@ try {
 };
 
 async function loginUser(req,res) {
-    const {email,password,username} = req.body;
-
-    const user = await userModel.findOne({
-        $or : [
-            {email},
-            {username}
-        ]
-    })
-
-    if(!user){
-        return res.status(400).json({
-            message: "Invalid credentials", 
-            success: false
+    try {
+        const {email,password,username} = req.body;
+    
+        const user = await userModel.findOne({
+            $or : [
+                {email},
+                {username}
+            ]
         })
-    }
-
-    const isPasswordCorrect = await user.comparePassword(password);
-
-    if(!isPasswordCorrect){
-        return res.status(400).json({
-            message: "Invalid credentials", 
-            success: false
-        })
-    }
-
-    const token = jwt.sign({
-        id: user._id,
-        username: user.username
-    },process.env.JWT_SECRET,{expiresIn: "3d"});
-
-    res.cookie("token", token,{
-        httpOnly: true,
-        secure: false,      // its only allow to send cookie over https in true
-        sameSite: "lax"
-    });
-
-    res.status(200).json({
-        message: "User logged in successfully",
-        success: true,
-        user: {
+    
+        if(!user){
+            return res.status(400).json({
+                message: "Invalid credentials", 
+                success: false
+            })
+        }
+    
+        const isPasswordCorrect = await user.comparePassword(password);
+    
+        if(!isPasswordCorrect){
+            return res.status(400).json({
+                message: "Invalid credentials", 
+                success: false
+            })
+        }
+    
+        const token = jwt.sign({
             id: user._id,
             username: user.username,
-            email: user.email
-        }
-    })
+            role: user.role
+        },process.env.JWT_SECRET,{expiresIn: "3d"});
+    
+        res.cookie("token", token,{
+            httpOnly: true,
+            secure: false,      // its only allow to send cookie over https in true
+            sameSite: "lax"
+        });
+    
+        res.status(200).json({
+            message: "User logged in successfully",
+            success: true,
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                role:user.role
+            },
+            token
+        })
+    } catch (err) {
+        res.status(500).json({
+            message: "Internal server error",
+            Error: err.message
+        })
+        
+    }
 
 };
 async function getMe(req,res){
-    const user = await userModel.findById(req.user.id);
-
-    if(!user) {
-        return res.status(400).json({
-            message: "User not found",
-            success: false
-        })
-    }
-
-    res.status(200).json({
-        message: "User fetched successfully",
-
-        user : {
-            id : user._id,
-            username: user.username,
-            email: user.email,
-            createdAt: user.createdAt
+    try {
+        const user = await userModel.findById(req.user.id);
+    
+        if(!user) {
+            return res.status(400).json({
+                message: "User not found",
+                success: false
+            })
         }
-    })
+    
+        res.status(200).json({
+            message: "User fetched successfully",
+    
+            user : {
+                id : user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                createdAt: user.createdAt
+            }
+        })
+    } catch (err) {
+        res.status(500).json({
+            message: "Internal server error",
+            Error: err.message
+        })
+        
+    }
 };
         
 async function logoutUser(req, res){
-    const token = req.cookies.token;
-
-    res.clearCookie("token");
-
-    redis.set(token, Date.now().toString(), "EX", 60 * 60 * 24);
-
-
-    res.status(200).json({
-        message: "User logged out successfully",
-        success: true
-    })  
+    try {
+        const token = req.cookies.token;
+    
+        res.clearCookie("token");
+    
+        redis.set(token, Date.now().toString(), "EX", 60 * 60 * 24);
+    
+    
+        res.status(200).json({
+            message: "User logged out successfully",
+            success: true
+        }) 
+    } catch (err) {
+    res.status(500).json({
+        message: "Internal server error",
+        Error: err.message
+    })
+    
+    } 
 };
 
 

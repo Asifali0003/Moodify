@@ -9,8 +9,8 @@ const router = express.Router()
 
 router.post("/register",authController.registerUser); // /api/auth to register user
 router.post("/login",authController.loginUser); // /api/auth to login user
-router.get("/get-me",authMiddleware.authUser,authController.getMe); // /api/auth to get current user details
-router.get("/logout",authMiddleware.authUser,authController.logoutUser); // /api/auth to logout user
+router.get("/get-me",authMiddleware,authController.getMe); // /api/auth to get current user details
+router.get("/logout",authMiddleware,authController.logoutUser); // /api/auth to logout user
 
 
 

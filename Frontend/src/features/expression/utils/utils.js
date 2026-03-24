@@ -1,32 +1,52 @@
+// src/utils/utils.js
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
+let stableCount = 0;
+let lastExpression = "";
 
-export const init = async ({landmarkerRef,videoRef,streamRef}) => {
-    const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+/**
+ * Initialize MediaPipe + Camera
+ */
+export const init = async ({ landmarkerRef, videoRef, streamRef }) => {
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
   );
 
   landmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath:
-        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
     },
     outputFaceBlendshapes: true,
     runningMode: "VIDEO",
-    numFaces: 1
+    numFaces: 1,
   });
 
-  streamRef.current = await navigator.mediaDevices.getUserMedia({ video: true });
+  // small delay for stability
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
+  // 🎥 Start camera
+  streamRef.current = await navigator.mediaDevices.getUserMedia({ video: true });
   const video = videoRef.current;
   video.srcObject = streamRef.current;
 
-  video.onloadedmetadata = () => {
-    video.play();
-  }; 
-}
+  return new Promise((resolve) => {
+    video.onloadedmetadata = () => video.play();
+    video.onplaying = () => resolve();
+  });
+};
 
-export const detect = ({landmarkerRef,videoRef,animationRef,setExpression,setIsDetecting}) => {
+/**
+ * Detect expression (ONE RUN LOOP)
+ */
+export const detect = ({
+  landmarkerRef,
+  videoRef,
+  animationRef,
+  setExpression,
+  setIsDetecting,
+  onDetected,
+}) => {
   if (!landmarkerRef.current || !videoRef.current) return;
 
   const results = landmarkerRef.current.detectForVideo(
@@ -40,39 +60,58 @@ export const detect = ({landmarkerRef,videoRef,animationRef,setExpression,setIsD
     const getScore = (name) =>
       blendshapes.find((b) => b.categoryName === name)?.score || 0;
 
-    const smileLeft = getScore("mouthSmileLeft");
-    const smileRight = getScore("mouthSmileRight");
+    const smile =
+      (getScore("mouthSmileLeft") + getScore("mouthSmileRight")) / 2;
+    const frown =
+      (getScore("mouthFrownLeft") + getScore("mouthFrownRight")) / 2;
     const jawOpen = getScore("jawOpen");
-    const browUp = getScore("browInnerUp");
-    const frownLeft = getScore("mouthFrownLeft");
-    const frownRight = getScore("mouthFrownRight");
 
-    // console.log("Sad expression value →", frownLeft, frownRight);
+    let currentExpression = "neutral";
 
-    let currentExpression = "Neutral";
-
-    if (smileLeft > 0.5 && smileRight > 0.5) {
-      currentExpression = "Happy 😄";
-    } else if (jawOpen > 0.2 && browUp > 0.2) {
-      currentExpression = "Surprised 😲";
-    } else if (frownLeft > 0.003 && frownRight > 0.003) {
-      currentExpression = "Sad 😢";
-    }
+    if (smile > 0.5) currentExpression = "happy";
+    else if (frown > 0.01) currentExpression = "sad";
+    else if (jawOpen > 0.3) currentExpression = "surprised";
 
     setExpression(currentExpression);
 
-    // 🛑 Stop detecting after one expression
-    cancelAnimationFrame(animationRef.current);
-    setIsDetecting(false);
+    // ✅ Stability check
+    if (currentExpression === lastExpression) {
+      stableCount++;
+    } else {
+      stableCount = 0;
+      lastExpression = currentExpression;
+    }
 
-    return;
+    // 🎯 FINAL DETECTION
+    if (stableCount > 10) {
+      setIsDetecting(false);
+
+      // 🛑 STOP LOOP COMPLETELY
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+
+      stableCount = 0;
+      lastExpression = "";
+
+      if (typeof onDetected === "function") {
+        onDetected(currentExpression.toLowerCase());
+      }
+
+      return;
+    }
   }
 
-  animationRef.current = requestAnimationFrame(() => detect({
-    landmarkerRef,
-    videoRef,
-    animationRef,
-    setExpression,
-    setIsDetecting
-  }));
+  // 🔄 Continue loop
+  animationRef.current = requestAnimationFrame(() =>
+    detect({
+      landmarkerRef,
+      videoRef,
+      animationRef,
+      setExpression,
+      setIsDetecting,
+      onDetected,
+    })
+  );
 };
